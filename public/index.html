@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.25">
+    <title>Map Maker Tool</title>
+    <style>
+        /* Container will have dynamic columns based on the user input */
+        #mapContainer {
+            display: grid;
+            gap: 0px; /* No space between maps */
+            margin: 0; /* No margin around the container */
+            padding: 0; /* No padding around the container */
+        }
+
+        #mapContainer img {
+            width: 100%; /* Ensure images fill the grid cell */
+            height: auto; /* Maintain aspect ratio */
+            margin: 0; /* Remove any margin on images */
+            padding: 0; /* Remove any padding on images */
+            display: block; /* Ensure no extra space from inline elements */
+        }
+    </style>
+</head>
+<body>
+    <h1>Map Maker Tool</h1>
+
+    <!-- Input form to define the map area -->
+    <form id="mapForm">
+        <label for="latitude">Latitude: </label>
+        <input type="text" id="latitude" value="44.6546183">
+        <label for="longitude">Longitude: </label>
+        <input type="text" id="longitude" value="-1.1764869">
+        <label for="zoom">Zoom Level: </label>
+        <input type="number" id="zoom" value="15">
+        <label for="rows">Number of Rows: </label>
+        <input type="number" id="rows" value="2" min="1">
+        <label for="columns">Number of Columns: </label>
+        <input type="number" id="columns" value="2" min="1">
+        <label for="maptype">Map Type: </label>
+        <select id="maptype">
+            <option value="roadmap">Roadmap</option>
+            <option value="satellite">Satellite</option>
+            <option value="terrain">Terrain</option>
+            <option value="hybrid">Hybrid</option>
+        </select>
+        <button type="submit">Generate Map</button>
+    </form>
+
+    <!-- Image container for the maps -->
+    <div id="mapContainer"></div>
+
+    <!-- Download button -->
+    <button id="downloadButton" type="button">Download All Maps</button>
+
+    <script>
+        const apiKey = 'AIzaSyBjwkwPJitHDqhwii1tx09tVo2aO20CipY'; // Replace with your actual API key
+        const earthCircumferenceKm = 40075;
+
+        // Function to generate the map URL
+        function getStaticMapUrl(latitude, longitude, zoom, maptype) {
+            const baseUrl = 'https://maps.googleapis.com/maps/api/staticmap?';
+            const mapParams = `center=${latitude},${longitude}&zoom=${zoom}&size=600x400&maptype=${maptype}&key=${apiKey}`;
+            return baseUrl + mapParams;
+        }
+
+        // Function to calculate the longitude shift
+        function calculateLongitudeShift(lat, tileWidthKm) {
+            const latRad = lat * (Math.PI / 180);
+            const longitudeShift = (tileWidthKm / earthCircumferenceKm) * 360 * Math.cos(latRad);
+            return longitudeShift;
+        }
+
+        // Function to calculate the latitude shift based on pixel height
+        function calculateLatitudeShift(zoom, tileHeightPx) {
+            const metersPerPixel = 156543.03392 / Math.pow(2, zoom);
+            const tileHeightMeters = tileHeightPx * metersPerPixel;
+            const latitudeShift = tileHeightMeters / 111320; // More precise
+            return latitudeShift;
+        }
+
+        // Function to update grid layout based on number of columns
+        function updateGridLayout(columns) {
+            const mapContainer = document.getElementById('mapContainer');
+            mapContainer.style.gridTemplateColumns = `repeat(${columns}, 600px)`; // Adjust columns
+        }
+
+        // Function to download all maps as a single image
+        function downloadMaps() {
+            const mapContainer = document.getElementById('mapContainer');
+            const images = mapContainer.getElementsByTagName('img');
+            if (images.length === 0) {
+                alert('No maps to download.');
+                return;
+            }
+
+            // Create a canvas element
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            // Calculate total width and height of the final image
+            const mapWidth = 600;
+            const mapHeight = 400;
+            const numColumns = parseInt(document.getElementById('columns').value);
+            const numRows = Math.ceil(images.length / numColumns);
+            const totalWidth = numColumns * mapWidth;
+            const totalHeight = numRows * mapHeight;
+            canvas.width = totalWidth;
+            canvas.height = totalHeight;
+
+            // Draw each image onto the canvas
+            Array.from(images).forEach((img, index) => {
+                const x = (index % numColumns) * mapWidth;
+                const y = Math.floor(index / numColumns) * mapHeight;
+
+                // Create a new image element to load the map image with CORS enabled
+                const tempImg = new Image();
+                tempImg.crossOrigin = 'anonymous'; // Enable CORS
+
+                tempImg.onload = function() {
+                    context.drawImage(tempImg, x, y, mapWidth, mapHeight);
+                    
+                    // Check if all images are loaded and drawn
+                    if (index === images.length - 1) {
+                        // Convert canvas to a data URL
+                        const dataUrl = canvas.toDataURL('image/png');
+                        
+                        // Create a download link and trigger the download
+                        const link = document.createElement('a');
+                        link.href = dataUrl;
+                        link.download = 'maps.png';
+                        link.click();
+                    }
+                };
+
+                tempImg.src = img.src;
+            });
+        }
+
+        // Event listener for form submission to fetch the maps
+        document.getElementById('mapForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            // Get input values
+            const latitude = parseFloat(document.getElementById('latitude').value);
+            const longitude = parseFloat(document.getElementById('longitude').value);
+            const zoom = parseInt(document.getElementById('zoom').value);
+            const maptype = document.getElementById('maptype').value;
+            const numRows = parseInt(document.getElementById('rows').value);
+            const numColumns = parseInt(document.getElementById('columns').value);
+
+            // Update grid layout based on number of columns
+            updateGridLayout(numColumns);
+
+            // Define tile dimensions (width in km and height in pixels)
+            const tileWidthKm = 4;
+            const tileHeightPx = 400; // Pixel height of the map image
+
+            // Calculate the longitude and latitude shifts
+            const longitudeShift = calculateLongitudeShift(latitude, tileWidthKm);
+            const latitudeShift = calculateLatitudeShift(zoom, tileHeightPx);
+
+            // Clear the map container before generating new maps
+            const mapContainer = document.getElementById('mapContainer');
+            mapContainer.innerHTML = '';
+
+            // Generate maps for the specified number of rows and columns
+            for (let row = 0; row < numRows; row++) {
+                for (let col = 0; col < numColumns; col++) {
+                    const lat = latitude - row * latitudeShift;
+                    const lon = longitude + col * longitudeShift;
+
+                    // Generate the map URL
+                    const mapUrl = getStaticMapUrl(lat, lon, zoom, maptype);
+                    const newImg = document.createElement('img');
+                    newImg.src = mapUrl;
+                    newImg.alt = `Map centered at (${lat}, ${lon})`;
+                    mapContainer.appendChild(newImg);
+                }
+            }
+        });
+
+        // Event listener for download button
+        document.getElementById('downloadButton').addEventListener('click', downloadMaps);
+    </script>
+</body>
+</html>
